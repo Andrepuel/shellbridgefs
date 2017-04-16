@@ -1,0 +1,13 @@
+{
+	"name": "shellbridgefs",
+	"authors": [
+		"Andre Puel"
+	],
+	"description": "A minimal D application.",
+	"copyright": "Copyright © 2017, Andre Puel",
+	"license": "proprietary",
+	"dependencies": {
+		"dfuse": {"version": "*", "path":"dfuse"}
+	},
+	"lflags": ["-L/usr/local/lib"]
+}

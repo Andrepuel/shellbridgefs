@@ -1,0 +1,3 @@
+[submodule "dfuse"]
+	path = dfuse
+	url = https://github.com/Andrepuel/dfuse.git
