@@ -133,7 +133,7 @@ class ShellBridge {
 		enum fields = "%f %h %u %g %s %B %b %X %Y %Z %W %d %i";
 		auto statOutput = runCommand(Comm.STAT~" -c '%s' %s".format(fields, path.escape));
 		if (statOutput.empty) {
-			throw new FileNotFound;
+			return stat_t.init;
 		}
 		auto stat = statOutput.front[0..$-1].split(" ");
 		void set(T, Args...)(ref T t, int idx, Args args) {

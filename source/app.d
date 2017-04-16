@@ -1,22 +1,23 @@
 import errno = core.stdc.errno;
 import dfuse.fuse : Fuse, FuseException, Operations, stat_t;
+import shellbridgefs.queuecache : QueueCache;
 import shellbridgefs.shellbridge : FileNotFound, ShellBridge;
 import std.stdio;
 
 class MyFS : Operations
 {
 	ShellBridge bridge;
+	QueueCache!(string, stat_t) statCache;
+
 	this(ShellBridge bridge) {
 		this.bridge = bridge;
 	}
 
 	override void getattr(const(char)[] path, ref stat_t s)
 	{
-		try {
-			// debug stderr.writeln("getattr ", path);
-			s = bridge.stat(path);
-			// debug stderr.writeln(s);
-		} catch(FileNotFound) {
+		// debug stderr.writeln("getattr ", path);
+		s = statCache.fetch(path.idup, () => bridge.stat(path));
+		if (s == stat_t.init) {
 			throw new FuseException(errno.ENOENT);
 		}
 	}
