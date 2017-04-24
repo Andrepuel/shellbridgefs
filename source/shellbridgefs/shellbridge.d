@@ -9,14 +9,16 @@ enum CommOsx {
 	STAT = "/usr/local/bin/gstat",
 	LS = "/bin/ls",
 	RM = "rm",
-	TRUNCATE = "/usr/local/bin/gtruncate"
+	TRUNCATE = "/usr/local/bin/gtruncate",
+	MV = "mv",
 }
 enum CommLinux {
 	DD = "dd",
 	STAT = "stat",
 	LS = "/bin/ls",
 	RM = "rm",
-	TRUNCATE = "truncate"
+	TRUNCATE = "truncate",
+	MV = "mv",
 }
 
 alias Comm=CommLinux;
@@ -60,7 +62,7 @@ DelimitedRange!T delimitedRange(T)(T inputArg, UUID id) {
 	return DelimitedRange!T(inputArg, id);
 }
 
-string rawDataCommand(const(ubyte)[] data) {
+string rawDataCommand2(const(ubyte)[] data) {
 	import std.algorithm : among;
 	import std.exception : assumeUnique;
 	import std.random : uniform;
@@ -70,14 +72,20 @@ string rawDataCommand(const(ubyte)[] data) {
 	r ~= "cat <(cat <<" ~ eofId ~ "\n";
 	
 	foreach(b; data) {
-		if (b.among('`', '\\', '"', '\'')) {
+		if (b.among('`', '\\', '$')) {
 			r ~= '\\';
 		}
 		r ~= b;
 	}
 
-	r ~= "\n" ~ eofId ~ "\n) | "~Comm.DD~" count=1 bs=%s 2>/dev/null".format(data.length);
+	r ~= "\n" ~ eofId ~ "\n) | "~Comm.DD~" count=1 bs=%s".format(data.length);
 	return cast(immutable(char)[])(r.assumeUnique);
+}
+
+string rawDataCommand(const(ubyte)[] data) {
+	import std.base64 : Base64;
+
+	return "echo %s | base64 -d".format(Base64.encode(data));
 }
 
 class ShellBridge {
@@ -159,11 +167,18 @@ class ShellBridge {
 		return r;
 	}
 
-	immutable(ubyte)[] readChunk(const(char)[] path, ulong offset, ulong size) {
+	immutable(ubyte)[] readChunkOld(const(char)[] path, ulong offset, ulong size) {
 		import std.array : join;
 
-		auto contents = runCommand(Comm.DD~" if=%s bs=1 skip=%s count=%s 2>/dev/null; echo".format(path.escape, offset, size)).join();
+		auto contents = runCommand(Comm.DD~" if=%s bs=1 skip=%s count=%s; echo".format(path.escape, offset, size)).join();
 		return (cast(immutable(ubyte)[])contents)[0..$-1];
+	}
+
+	immutable(ubyte)[] readChunk(const(char)[] path, ulong offset, ulong size) {
+		import std.base64 : Base64;
+		
+		auto contents = runCommand(Comm.DD~" if=%s bs=1 skip=%s count=%s | base64 -w 0; echo".format(path.escape, offset, size));
+		return Base64.decode(contents[0][0..$-1]);
 	}
 
 	string readLink(const(char)[] path) {
@@ -179,10 +194,14 @@ class ShellBridge {
 	}
 
 	void write(const(char)[] path, const(ubyte)[] data, ulong skip) {
-		runCommand(rawDataCommand(data) ~ "| "~Comm.DD~" conv=notrunc iseek=%s bs=1 of=%s 2>/dev/null".format(skip, path.escape));
+		runCommand(rawDataCommand(data) ~ "| "~Comm.DD~" conv=notrunc seek=%s bs=1 of=%s".format(skip, path.escape));
 	}
 
 	void remove(const(char)[] path) {
 		runCommand(Comm.RM~" %s".format(path.escape));
+	}
+
+	void rename(const(char)[] orig, const(char)[] dest) {
+		runCommand(Comm.MV~" %s %s".format(orig.escape, dest.escape));
 	}
 }

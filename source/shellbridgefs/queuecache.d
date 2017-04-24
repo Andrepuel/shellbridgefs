@@ -111,6 +111,17 @@ struct QueueCache(K, V, size_t N = 512) {
 		moveBack(found);
 		return found.value;
 	}
+
+	void clear(K key) {
+		auto found = key in cache;
+
+		if (found is null) {
+			return;
+		}
+
+		moveBack(found);
+		popBack();
+	}
 }
 unittest {
 	QueueCache!(int,int,4) a;

@@ -13,10 +13,14 @@ class MyFS : Operations
 		this.bridge = bridge;
 	}
 
+	private stat_t stat(const(char)[] path) {
+		return statCache.fetch(path.idup, () => bridge.stat(path));
+	}
+
 	override void getattr(const(char)[] path, ref stat_t s)
 	{
 		// debug stderr.writeln("getattr ", path);
-		s = statCache.fetch(path.idup, () => bridge.stat(path));
+		s = stat(path);
 		if (s == stat_t.init) {
 			throw new FuseException(errno.ENOENT);
 		}
@@ -49,34 +53,41 @@ class MyFS : Operations
 
 	override bool access(const(char)[] path, int mode) {
 		// debug stderr.writeln("try access ", path, " with ", mode);
-		try {
-			bridge.stat(path);
-			// debug writeln("yes");
-			return true;
-		} catch(FileNotFound) {
-			// debug writeln("nopes");
-			return false;
-		}
+		return stat(path) != stat_t.init;
 	}
 
 	override int write(const(char)[] path, in ubyte[] data, ulong offset) {
 		// debug stderr.writeln("write ", path, "[", offset, "..+", data.length, "]");
 		bridge.write(path, data, offset);
+		statCache.clear(path.idup);
 		return cast(int)data.length;
 	}
 
 	override void truncate(const(char)[] path, ulong length) {
 		// debug stderr.writeln("truncate ", path, " to ", length);
 		bridge.truncate(path, length);
+		statCache.clear(path.idup);
 	}
 
 	override void mknod(const(char)[] path, int mod, ulong dev)
 	{
+		// debug stderr.writeln("mknod", path);
 		truncate(path, 0);
 	}
 
 	override void unlink(const(char)[] path) {
 		bridge.remove(path);
+		statCache.clear(path.idup);
+	}
+
+	override void rename(const(char)[] orig, const(char)[] dest) {
+		bridge.rename(orig, dest);
+		statCache.clear(orig.idup);
+		statCache.clear(dest.idup);
+	}
+
+	override void exception(Exception e) {
+		debug stderr.writeln(e);
 	}
 }
 
@@ -88,5 +99,5 @@ void main(string[] args) {
 	scope(exit) bridge.dispose();
 
 	auto fs = new Fuse("MyFS", true, false);
-	fs.mount(new MyFS(bridge), mountpath, ["allow_other"]);
+	fs.mount(new MyFS(bridge), mountpath, [/*"allow_other"*/]);
 }
