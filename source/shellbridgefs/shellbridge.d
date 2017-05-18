@@ -2,6 +2,7 @@ module shellbridgefs.shellbridge;
 import core.sys.posix.sys.stat : stat_t;
 import std.format : format;
 import std.process : Pid, Pipe;
+import std.typecons : Tuple;
 import std.uuid : UUID;
 
 enum CommOsx {
@@ -124,49 +125,50 @@ class ShellBridge {
 		return r;
 	}
 
-	string[] list(const(char)[] path) {
-		import std.algorithm : map;
+	Tuple!(stat_t, string, string)[] list(const(char)[] path) {
+		import std.algorithm : countUntil, filter, map;
 		import std.array : array;
 		import std.range : chain;
+		import std.string : split;
+		import std.utf : toUTF32, toUTF8;
 
-		return [".", ".."].chain(runCommand(Comm.LS~" %s".format(path.escape)).map!(x => x[0..$-1])).array;
+		enum fields = "%f %h %u %g %s %B %b %X %Y %Z %W %d %i/%N";
+		auto statOutput = runCommand(Comm.STAT~" -c '%s' %2$s/.* %2$s/* %2$s/".format(fields, path.escape));
+		return statOutput
+		.filter!(x => x != "\n")
+		.map!((statLine) {
+			Tuple!(stat_t, string, string) r;
+			size_t statNameBound = statLine.countUntil("/");
+			auto stat = statLine[0..statNameBound].split(" ");
+			auto link = statLine[statNameBound+1..$-1].toUTF32.split(" -> ");
+			r[1] = link[0][1..$-1].toUTF8;
+			if (link.length > 1) {
+				r[2] = link[1][1..$-1].toUTF8;
+			}
+
+			void set(T, Args...)(ref T t, int idx, Args args) {
+				import std.conv : to;
+
+				t = stat[idx].to!(T)(args);
+			}
+			set(r[0].st_mode, 0, 16);
+			set(r[0].st_nlink, 1);
+			set(r[0].st_uid, 2);
+			set(r[0].st_gid, 3);
+			set(r[0].st_size, 4);
+			set(r[0].st_blksize, 5);
+			set(r[0].st_blocks, 6);
+			set(r[0].st_atime, 7);
+			set(r[0].st_mtime, 8);
+			set(r[0].st_ctime, 9);
+			set(r[0].st_birthtime, 10);
+			set(r[0].st_dev, 11);
+			set(r[0].st_ino, 12);
+
+			return r;
+		}).array;
 	}
 	
-	stat_t stat(const(char)[] path) {
-		import std.array : array;
-		import std.conv : to;
-		import std.range : empty, front;
-		import std.string : split;
-
-		enum fields = "%f %h %u %g %s %B %b %X %Y %Z %W %d %i";
-		auto statOutput = runCommand(Comm.STAT~" -c '%s' %s".format(fields, path.escape));
-		if (statOutput.empty) {
-			return stat_t.init;
-		}
-		auto stat = statOutput.front[0..$-1].split(" ");
-		void set(T, Args...)(ref T t, int idx, Args args) {
-			import std.conv : to;
-
-			t = stat[idx].to!(T)(args);
-		}
-		stat_t r;
-		set(r.st_mode, 0, 16);
-		set(r.st_nlink, 1);
-		set(r.st_uid, 2);
-		set(r.st_gid, 3);
-		set(r.st_size, 4);
-		set(r.st_blksize, 5);
-		set(r.st_blocks, 6);
-		set(r.st_atime, 7);
-		set(r.st_mtime, 8);
-		set(r.st_ctime, 9);
-		set(r.st_birthtime, 10);
-		set(r.st_dev, 11);
-		set(r.st_ino, 12);
-
-		return r;
-	}
-
 	immutable(ubyte)[] readChunkOld(const(char)[] path, ulong offset, ulong size) {
 		import std.array : join;
 
@@ -179,14 +181,6 @@ class ShellBridge {
 		
 		auto contents = runCommand(Comm.DD~" if=%s bs=1 skip=%s count=%s | base64 -w 0; echo".format(path.escape, offset, size));
 		return Base64.decode(contents[0][0..$-1]);
-	}
-
-	string readLink(const(char)[] path) {
-		import std.string : split;
-		import std.utf : toUTF32, toUTF8;
-
-		auto link = runCommand(Comm.STAT~" -c %s %s".format("%N", path.escape))[0][0..$-1].toUTF32.split(" -> ");
-		return link[$-1][1..$-1].toUTF8;
 	}
 
 	void truncate(const(char)[] path, ulong length) {

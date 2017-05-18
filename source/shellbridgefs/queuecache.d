@@ -10,7 +10,7 @@ string ptrToString(T)(T* a) {
 	}
 }
 
-struct QueueCache(K, V, size_t N = 512) {
+struct QueueCache(K, V, size_t N = 8192) {
 	struct Value {
 		K key;
 		V value;
@@ -97,7 +97,14 @@ struct QueueCache(K, V, size_t N = 512) {
 		last = value;
 	}
 
-	V fetch(K key, V delegate() calc) {
+	V* has(K key) {
+		auto found = key in cache;
+		if (found is null) return null;
+		moveBack(found);
+		return &found.value;
+	}
+
+	ref V fetch(K key, V delegate() calc) {
 		auto found = key in cache;
 
 		if (found is null) {
